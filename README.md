@@ -41,6 +41,8 @@ python3 -m tests
 
 ## Deploy
 
+Live app: https://agri-remote-sensing.fly.dev/
+
 The app is packaged with `Dockerfile` and `fly.toml`. From this directory:
 
 ```bash
