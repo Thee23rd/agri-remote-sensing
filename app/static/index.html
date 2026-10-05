@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agriculture & Remote Sensing</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <svg class="leaf" viewBox="0 0 72 72" aria-hidden="true">
+        <path fill="currentColor" d="M14 44c6-18 22-30 36-36 12-5 22-4 26-2-3 14-12 28-26 36-10 6-22 10-32 12-3-3-5-7-4-10z"/>
+        <path fill="none" stroke="#f3d48a" stroke-width="2.4" stroke-linecap="round" d="M22 46c10-10 20-20 34-28"/>
+      </svg>
+      <div>
+        <h1>Agriculture &amp; Remote Sensing</h1>
+        <p>Spectral readings as observations; crop growth stages as hidden states. Enables crop monitoring without direct field inspection.</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="controls">
+      <form id="season-form">
+        <label>
+          Crop
+          <select id="crop" name="crop"></select>
+        </label>
+        <p id="planting-note" class="hint"></p>
+        <label>
+          Planting date
+          <input id="planting" name="planting" type="date" required>
+        </label>
+        <label>
+          Pass interval
+          <select id="interval" name="interval">
+            <option value="5" selected>5 days, Sentinel-2 style</option>
+            <option value="10">10 days</option>
+          </select>
+        </label>
+        <label class="check">
+          <input id="cloud" type="checkbox" checked>
+          Drop cloudy passes
+        </label>
+        <button id="simulate" type="submit">Simulate a season</button>
+      </form>
+
+      <div class="divider"><span>or</span></div>
+
+      <label class="upload">
+        Upload a CSV
+        <input id="csv" type="file" accept=".csv,text/csv">
+      </label>
+      <p class="hint">Columns: date, ndvi. Optional: evi, ndre. One row per clear pass.</p>
+
+      <fieldset class="mode">
+        <legend>Read the season as</legend>
+        <button type="button" id="mode-viterbi" class="mode-btn is-active" aria-pressed="true">Season reconstruction</button>
+        <button type="button" id="mode-filtered" class="mode-btn" aria-pressed="false">Live monitoring</button>
+        <p id="mode-copy" class="hint">The single most likely stage sequence given every clear pass.</p>
+      </fieldset>
+
+      <button id="learn" type="button" class="secondary" disabled>Learn from unlabeled passes</button>
+      <p id="learn-hint" class="hint">Fits the spectral signature without growth-stage labels, then scores this field again.</p>
+
+      <ol id="stage-list" class="stage-list"></ol>
+    </aside>
+
+    <div class="board">
+      <p id="status" class="status" role="status" hidden></p>
+
+      <section class="metrics" id="metrics" hidden>
+        <article>
+          <p class="metric-label" id="stage-label">Latest stage</p>
+          <p class="metric-value" id="metric-stage">—</p>
+          <p class="metric-sub" id="metric-confidence"></p>
+        </article>
+        <article>
+          <p class="metric-label">Clear passes</p>
+          <p class="metric-value" id="metric-passes">—</p>
+          <p class="metric-sub" id="metric-cloud"></p>
+        </article>
+        <article>
+          <p class="metric-label">Peak NDVI</p>
+          <p class="metric-value" id="metric-peak">—</p>
+          <p class="metric-sub" id="metric-peak-date"></p>
+        </article>
+        <article>
+          <p class="metric-label">Senescence onset</p>
+          <p class="metric-value" id="metric-senescence">—</p>
+          <p class="metric-sub">From the reconstructed path</p>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Spectral observations</h2>
+          <ul class="legend" aria-hidden="true">
+            <li><span class="swatch ndvi"></span>NDVI</li>
+            <li><span class="swatch evi"></span>EVI</li>
+            <li><span class="swatch ndre"></span>NDRE</li>
+          </ul>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="series-chart" height="280"></canvas>
+          <div id="tooltip" class="tooltip" hidden></div>
+          <p id="chart-empty" class="empty">Simulate a season or upload passes. The bands behind the lines are the inferred growth stages.</p>
+        </div>
+        <div id="ribbon" class="ribbon" hidden></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2 id="belief-title">Stage belief</h2>
+          <p id="belief-copy" class="hint">Each column is a clear pass. Darker means the model assigns more probability to that stage.</p>
+        </div>
+        <div class="chart-wrap posterior-wrap">
+          <canvas id="posterior-chart" height="210"></canvas>
+          <p id="posterior-empty" class="empty">Stage probabilities show up here after a season is scored.</p>
+        </div>
+      </section>
+
+      <div class="split">
+        <section class="panel">
+          <h2>What the model is doing</h2>
+          <dl class="model-notes">
+            <div>
+              <dt>Hidden state</dt>
+              <dd>The growth stage. A satellite never sees it. The field is in one stage at a time, and the stage usually persists or moves forward.</dd>
+            </div>
+            <div>
+              <dt>Observation</dt>
+              <dd>NDVI, EVI, and NDRE on a clear pass. NDRE often falls while NDVI is still high, which is how flowering separates from grain fill.</dd>
+            </div>
+            <div>
+              <dt>Live monitoring</dt>
+              <dd>The forward filter. The belief on a date uses only passes that had arrived by that date, which is what an operator would have known then.</dd>
+            </div>
+            <div>
+              <dt>Season reconstruction</dt>
+              <dd>The Viterbi path. One stage sequence that best explains the whole series, including passes that came later.</dd>
+            </div>
+            <div>
+              <dt>Learning</dt>
+              <dd>Expectation-maximization updates each stage’s spectral signature from unlabeled passes. It starts from the textbook signature, so a short record cannot invent a backward season.</dd>
+            </div>
+          </dl>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Stage signatures</h2>
+            <p id="signature-label" class="hint">Textbook prior</p>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Stage</th>
+                  <th>NDVI</th>
+                  <th>EVI</th>
+                  <th>NDRE</th>
+                </tr>
+              </thead>
+              <tbody id="signatures"></tbody>
+            </table>
+          </div>
+          <p id="agreement" class="agreement" hidden></p>
+        </section>
+      </div>
+
+      <section class="panel">
+        <h2>Clear passes</h2>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>NDVI</th>
+                <th>EVI</th>
+                <th>NDRE</th>
+                <th>Stage</th>
+                <th>Belief</th>
+              </tr>
+            </thead>
+            <tbody id="passes">
+              <tr><td colspan="6" class="empty-cell">No passes yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
